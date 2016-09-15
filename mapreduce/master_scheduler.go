@@ -2,7 +2,7 @@ package mapreduce
 
 import (
 	"log"
-	"sync"
+	"sync"	
 )
 
 // Schedules map operations on remote workers. This will run until InputFilePathChan
@@ -34,6 +34,20 @@ func (master *Master) schedule(task *Task, proc string, filePathChan chan string
 
 	wg.Wait()
 
+	log.Printf("Run recovering system")
+	if master.operationBuff != nil {		
+		for len(master.operationBuff) > 0{
+			buff := master.operationBuff
+			master.operationBuff = make([]*Operation,0)
+			for _,op := range buff{
+				worker = <-master.idleWorkerChan
+				wg.Add(1)
+				go master.runOperation(worker, op, &wg)
+			}
+			wg.Wait()
+		}	
+	}	
+
 	log.Printf("%vx %v operations completed\n", counter, proc)
 	return counter
 }
@@ -58,6 +72,7 @@ func (master *Master) runOperation(remoteWorker *RemoteWorker, operation *Operat
 		log.Printf("Operation %v '%v' Failed. Error: %v\n", operation.proc, operation.id, err)
 		wg.Done()
 		master.failedWorkerChan <- remoteWorker
+		master.operationBuff = append(master.operationBuff, operation)
 	} else {
 		wg.Done()
 		master.idleWorkerChan <- remoteWorker
